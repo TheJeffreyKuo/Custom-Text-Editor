@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 #include <termios.h>
 
 enum class EditorKey : int {
@@ -14,7 +15,11 @@ enum class EditorKey : int {
     ESCAPE
 };
 
-// Pure byte-to-key mapping, no terminal dependency.
+struct TerminalSize {
+    int rows;
+    int cols;
+};
+
 int parseEscapeSequence(const char* seq, int len);
 
 class Terminal {
@@ -23,6 +28,9 @@ public:
     ~Terminal();
 
     int readKey();
+    TerminalSize getSize() const;
+    void flush(const std::string& buf);
+    bool wasResized();
 
     Terminal(const Terminal&) = delete;
     Terminal& operator=(const Terminal&) = delete;
@@ -32,4 +40,5 @@ private:
 
     void enableRawMode();
     void disableRawMode();
+    void installSignalHandlers();
 };
