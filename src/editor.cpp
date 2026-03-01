@@ -4,8 +4,10 @@
 static const char* VERSION = "0.0.1";
 
 Editor::Editor(const std::string& filename) : screen_(terminal_.getSize()) {
+    screen_.rows -= 1;
     if (!filename.empty())
         buffer_.open(filename);
+    statusMsg_ = "HELP: Ctrl-S = save | Ctrl-Q = quit";
 }
 
 void Editor::run() {
@@ -39,8 +41,10 @@ void Editor::scroll() {
 }
 
 void Editor::refreshScreen() {
-    if (terminal_.wasResized())
+    if (terminal_.wasResized()) {
         screen_ = terminal_.getSize();
+        screen_.rows -= 1;
+    }
 
     int rowLen = (cy_ < buffer_.numRows())
         ? static_cast<int>(buffer_.getRow(cy_).chars.size()) : 0;
@@ -53,6 +57,7 @@ void Editor::refreshScreen() {
     buf.append("\x1b[H");
 
     drawRows(buf);
+    drawMessageBar(buf);
 
     char cursor[32];
     snprintf(cursor, sizeof(cursor), "\x1b[%d;%dH",
@@ -94,16 +99,72 @@ void Editor::drawRows(std::string& buf) {
         }
 
         buf.append("\x1b[K");
-        if (y < screen_.rows - 1)
-            buf.append("\r\n");
+        buf.append("\r\n");
+    }
+}
+
+void Editor::drawMessageBar(std::string& buf) {
+    buf.append("\x1b[K");
+    int len = static_cast<int>(statusMsg_.size());
+    if (len > screen_.cols) len = screen_.cols;
+    if (len > 0)
+        buf.append(statusMsg_, 0, len);
+}
+
+std::string Editor::prompt(const std::string& message) {
+    std::string input;
+
+    while (true) {
+        statusMsg_ = message + input;
+        refreshScreen();
+
+        int key = terminal_.readKey();
+
+        if (key == '\r' && !input.empty()) {
+            statusMsg_.clear();
+            return input;
+        } else if (key == static_cast<int>(EditorKey::ESCAPE)) {
+            statusMsg_.clear();
+            return "";
+        } else if (key == 127 || key == ctrlKey('h')) {
+            if (!input.empty()) input.pop_back();
+        } else if (key >= 32 && key <= 126) {
+            input.push_back(static_cast<char>(key));
+        }
     }
 }
 
 void Editor::processKeypress(int key) {
+    if (key != ctrlKey('q')) quitConfirm_ = 0;
+
     switch (key) {
         case ctrlKey('q'):
+            if (buffer_.isDirty() && quitConfirm_ < 1) {
+                statusMsg_ = "File has unsaved changes. Ctrl-Q again to quit.";
+                quitConfirm_++;
+                break;
+            }
             running_ = false;
+            terminal_.flush("\x1b[2J\x1b[H");
             break;
+
+        case ctrlKey('s'): {
+            int bytes = buffer_.save();
+            if (bytes == -1 && buffer_.getFilename().empty()) {
+                std::string filename = prompt("Save as: ");
+                if (filename.empty()) {
+                    statusMsg_ = "Save aborted";
+                    break;
+                }
+                bytes = buffer_.save(filename);
+            }
+            if (bytes >= 0)
+                statusMsg_ = std::to_string(bytes) + " bytes written to "
+                            + buffer_.getFilename();
+            else
+                statusMsg_ = "Save failed!";
+            break;
+        }
 
         case '\r':
             recordAction(buffer_.splitLine(cy_, cx_));

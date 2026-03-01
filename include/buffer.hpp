@@ -35,6 +35,9 @@ public:
     EditAction splitLine(int row, int col);
     EditAction joinLines(int row);
 
+    int save();
+    int save(const std::string& filename);
+
 private:
     std::vector<Row> rows_;
     std::string filename_;

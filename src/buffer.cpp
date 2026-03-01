@@ -76,6 +76,30 @@ EditAction Buffer::joinLines(int row) {
     return {EditAction::JOIN_LINES, row, joinCol, '\0', savedText, 0, 0};
 }
 
+int Buffer::save() {
+    if (filename_.empty()) return -1;
+
+    std::string content;
+    for (int i = 0; i < numRows(); i++) {
+        content.append(rows_[i].chars);
+        content.push_back('\n');
+    }
+
+    std::ofstream file(filename_, std::ios::trunc);
+    if (!file) return -1;
+
+    file.write(content.data(), content.size());
+    if (!file) return -1;
+
+    dirty_ = false;
+    return static_cast<int>(content.size());
+}
+
+int Buffer::save(const std::string& filename) {
+    filename_ = filename;
+    return save();
+}
+
 void Buffer::updateRender(Row& row) {
     row.render.clear();
     for (char c : row.chars) {

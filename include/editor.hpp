@@ -22,13 +22,17 @@ private:
     int rowOffset_ = 0;
     int colOffset_ = 0;
     bool running_ = true;
+    int quitConfirm_ = 0;
+    std::string statusMsg_;
 
     std::vector<EditAction> undoStack_;
 
     void refreshScreen();
     void drawRows(std::string& buf);
+    void drawMessageBar(std::string& buf);
     void processKeypress(int key);
     void moveCursor(int key);
     void scroll();
     void recordAction(EditAction action);
+    std::string prompt(const std::string& message);
 };
