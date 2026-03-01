@@ -1,0 +1,17 @@
+# Build artifacts
+build/
+cmake-build-*/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Compiled objects
+*.o
+*.d
+
+# compile_commands.json symlink at project root
+compile_commands.json
