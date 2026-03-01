@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_library(kilo_lib STATIC
-    src/lib_placeholder.cpp
+    src/terminal.cpp
 )
 
 target_include_directories(kilo_lib PUBLIC ${PROJECT_SOURCE_DIR}/include)
