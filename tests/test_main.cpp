@@ -1,5 +1,6 @@
 #include "terminal.hpp"
 #include "buffer.hpp"
+#include "filetype.hpp"
 #include <cassert>
 #include <iostream>
 
@@ -157,6 +158,66 @@ void test_action_types() {
     assert(a4.type == EditAction::JOIN_LINES);
 }
 
+// --- File type detection tests ---
+
+void test_filetype_detection() {
+    assert(detectFileType("main.cpp").name == "C++");
+    assert(detectFileType("header.hpp").name == "C++");
+    assert(detectFileType("main.c").name == "C");
+    assert(detectFileType("script.py").name == "Python");
+    assert(detectFileType("Makefile").name == "Makefile");
+    assert(detectFileType("CMakeLists.txt").name == "Makefile");
+    assert(detectFileType("readme.md").name == "Markdown");
+    assert(detectFileType("unknown.xyz").name == "Plain Text");
+    assert(detectFileType("").name == "Plain Text");
+}
+
+// --- Document stats tests ---
+
+void test_word_count_basic() {
+    Buffer buf;
+    buf.insertChar(0, 0, 'h');
+    buf.insertChar(0, 1, 'i');
+
+    auto stats = computeStats(buf);
+    assert(stats.totalWords == 1);
+    assert(stats.totalChars == 2);
+    assert(stats.totalLines == 1);
+}
+
+void test_word_count_multiple() {
+    Buffer buf;
+    const char* text = "hello world";
+    for (int i = 0; text[i]; i++)
+        buf.insertChar(0, i, text[i]);
+
+    auto stats = computeStats(buf);
+    assert(stats.totalWords == 2);
+}
+
+void test_word_count_edge_cases() {
+    Buffer buf;
+    auto stats = computeStats(buf);
+    assert(stats.totalWords == 0);
+    assert(stats.totalChars == 0);
+
+    buf.insertChar(0, 0, ' ');
+    buf.insertChar(0, 1, ' ');
+    buf.insertChar(0, 2, ' ');
+    stats = computeStats(buf);
+    assert(stats.totalWords == 0);
+
+    buf.deleteChar(0, 0);
+    buf.deleteChar(0, 0);
+    buf.deleteChar(0, 0);
+    buf.insertChar(0, 0, 'a');
+    buf.insertChar(0, 1, ' ');
+    buf.insertChar(0, 2, ' ');
+    buf.insertChar(0, 3, 'b');
+    stats = computeStats(buf);
+    assert(stats.totalWords == 2);
+}
+
 int main() {
     test_arrow_keys();
     test_home_end_variants();
@@ -172,6 +233,10 @@ int main() {
     test_join_lines();
     test_dirty_flag();
     test_action_types();
+    test_filetype_detection();
+    test_word_count_basic();
+    test_word_count_multiple();
+    test_word_count_edge_cases();
 
     std::cout << "All tests passed.\n";
     return 0;

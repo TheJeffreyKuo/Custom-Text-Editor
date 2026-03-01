@@ -1,4 +1,5 @@
 #include "buffer.hpp"
+#include <cctype>
 #include <fstream>
 
 void Buffer::open(const std::string& filename) {
@@ -134,4 +135,24 @@ int renderToChars(const Row& row, int rx) {
             cur_rx++;
     }
     return cx;
+}
+
+DocumentStats computeStats(const Buffer& buffer) {
+    DocumentStats stats;
+    stats.totalLines = buffer.numRows();
+    for (int i = 0; i < buffer.numRows(); i++) {
+        const std::string& chars = buffer.getRow(i).chars;
+        stats.totalChars += static_cast<int>(chars.size());
+
+        bool inWord = false;
+        for (char c : chars) {
+            if (std::isspace(static_cast<unsigned char>(c))) {
+                inWord = false;
+            } else if (!inWord) {
+                inWord = true;
+                stats.totalWords++;
+            }
+        }
+    }
+    return stats;
 }

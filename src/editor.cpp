@@ -4,10 +4,10 @@
 static const char* VERSION = "0.0.1";
 
 Editor::Editor(const std::string& filename) : screen_(terminal_.getSize()) {
-    screen_.rows -= 1;
+    screen_.rows -= 2;
     if (!filename.empty())
         buffer_.open(filename);
-    statusMsg_ = "HELP: Ctrl-S = save | Ctrl-Q = quit";
+    setStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit");
 }
 
 void Editor::run() {
@@ -18,10 +18,16 @@ void Editor::run() {
     }
 }
 
+void Editor::setStatusMessage(const std::string& msg) {
+    statusMsg_ = msg;
+    statusMsgTime_ = std::time(nullptr);
+}
+
 void Editor::recordAction(EditAction action) {
     action.cursorRow = cy_;
     action.cursorCol = cx_;
     undoStack_.push_back(std::move(action));
+    statsDirty_ = true;
 }
 
 void Editor::scroll() {
@@ -43,7 +49,7 @@ void Editor::scroll() {
 void Editor::refreshScreen() {
     if (terminal_.wasResized()) {
         screen_ = terminal_.getSize();
-        screen_.rows -= 1;
+        screen_.rows -= 2;
     }
 
     int rowLen = (cy_ < buffer_.numRows())
@@ -57,6 +63,7 @@ void Editor::refreshScreen() {
     buf.append("\x1b[H");
 
     drawRows(buf);
+    drawStatusBar(buf);
     drawMessageBar(buf);
 
     char cursor[32];
@@ -103,28 +110,72 @@ void Editor::drawRows(std::string& buf) {
     }
 }
 
+void Editor::drawStatusBar(std::string& buf) {
+    if (statsDirty_) {
+        stats_ = computeStats(buffer_);
+        statsDirty_ = false;
+    }
+
+    buf.append("\x1b[7m");
+
+    // Left side: filename, dirty, filetype
+    const std::string& fname = buffer_.getFilename();
+    FileType ft = detectFileType(fname);
+
+    char left[256];
+    int leftLen = snprintf(left, sizeof(left), " %.40s%s -- %s",
+        fname.empty() ? "[No Name]" : fname.c_str(),
+        buffer_.isDirty() ? " (modified)" : "",
+        ft.name.c_str());
+    if (leftLen > screen_.cols) leftLen = screen_.cols;
+
+    // Right side: cursor position and stats
+    char right[256];
+    int rightLen = snprintf(right, sizeof(right),
+        "Ln %d, Col %d | %d lines | %d chars | %d words ",
+        cy_ + 1, rx_ + 1,
+        stats_.totalLines, stats_.totalChars, stats_.totalWords);
+
+    buf.append(left, leftLen);
+
+    // Fill space between left and right with spaces (all in reverse video)
+    int padding = screen_.cols - leftLen - rightLen;
+    if (padding > 0) {
+        buf.append(padding, ' ');
+        buf.append(right, rightLen);
+    } else {
+        // Not enough room for right side — just pad to fill
+        int remaining = screen_.cols - leftLen;
+        if (remaining > 0) buf.append(remaining, ' ');
+    }
+
+    buf.append("\x1b[m");
+    buf.append("\r\n");
+}
+
 void Editor::drawMessageBar(std::string& buf) {
     buf.append("\x1b[K");
-    int len = static_cast<int>(statusMsg_.size());
-    if (len > screen_.cols) len = screen_.cols;
-    if (len > 0)
+    if (!statusMsg_.empty() && std::time(nullptr) - statusMsgTime_ < 5) {
+        int len = static_cast<int>(statusMsg_.size());
+        if (len > screen_.cols) len = screen_.cols;
         buf.append(statusMsg_, 0, len);
+    }
 }
 
 std::string Editor::prompt(const std::string& message) {
     std::string input;
 
     while (true) {
-        statusMsg_ = message + input;
+        setStatusMessage(message + input);
         refreshScreen();
 
         int key = terminal_.readKey();
 
         if (key == '\r' && !input.empty()) {
-            statusMsg_.clear();
+            setStatusMessage("");
             return input;
         } else if (key == static_cast<int>(EditorKey::ESCAPE)) {
-            statusMsg_.clear();
+            setStatusMessage("");
             return "";
         } else if (key == 127 || key == ctrlKey('h')) {
             if (!input.empty()) input.pop_back();
@@ -140,7 +191,7 @@ void Editor::processKeypress(int key) {
     switch (key) {
         case ctrlKey('q'):
             if (buffer_.isDirty() && quitConfirm_ < 1) {
-                statusMsg_ = "File has unsaved changes. Ctrl-Q again to quit.";
+                setStatusMessage("File has unsaved changes. Ctrl-Q again to quit.");
                 quitConfirm_++;
                 break;
             }
@@ -153,16 +204,17 @@ void Editor::processKeypress(int key) {
             if (bytes == -1 && buffer_.getFilename().empty()) {
                 std::string filename = prompt("Save as: ");
                 if (filename.empty()) {
-                    statusMsg_ = "Save aborted";
+                    setStatusMessage("Save aborted");
                     break;
                 }
                 bytes = buffer_.save(filename);
             }
             if (bytes >= 0)
-                statusMsg_ = std::to_string(bytes) + " bytes written to "
-                            + buffer_.getFilename();
+                setStatusMessage(std::to_string(bytes) + " bytes written to "
+                                + buffer_.getFilename());
             else
-                statusMsg_ = "Save failed!";
+                setStatusMessage("Save failed!");
+            statsDirty_ = true;
             break;
         }
 

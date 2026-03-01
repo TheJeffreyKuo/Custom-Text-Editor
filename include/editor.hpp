@@ -1,6 +1,8 @@
 #pragma once
 #include "buffer.hpp"
+#include "filetype.hpp"
 #include "terminal.hpp"
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -23,16 +25,23 @@ private:
     int colOffset_ = 0;
     bool running_ = true;
     int quitConfirm_ = 0;
+
     std::string statusMsg_;
+    time_t statusMsgTime_ = 0;
+
+    DocumentStats stats_;
+    bool statsDirty_ = true;
 
     std::vector<EditAction> undoStack_;
 
     void refreshScreen();
     void drawRows(std::string& buf);
+    void drawStatusBar(std::string& buf);
     void drawMessageBar(std::string& buf);
     void processKeypress(int key);
     void moveCursor(int key);
     void scroll();
     void recordAction(EditAction action);
+    void setStatusMessage(const std::string& msg);
     std::string prompt(const std::string& message);
 };

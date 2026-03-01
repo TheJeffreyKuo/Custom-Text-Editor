@@ -18,6 +18,12 @@ struct EditAction {
     int cursorRow, cursorCol;
 };
 
+struct DocumentStats {
+    int totalLines = 0;
+    int totalChars = 0;
+    int totalWords = 0;
+};
+
 int charsToRender(const Row& row, int cx);
 int renderToChars(const Row& row, int rx);
 
@@ -47,3 +53,5 @@ private:
     void deleteRow(int at);
     void updateRender(Row& row);
 };
+
+DocumentStats computeStats(const Buffer& buffer);
