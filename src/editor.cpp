@@ -7,7 +7,7 @@ Editor::Editor(const std::string& filename) : screen_(terminal_.getSize()) {
     screen_.rows -= 2;
     if (!filename.empty())
         buffer_.open(filename);
-    setStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-Z = undo | Ctrl-Y = redo");
+    setStatusMessage("HELP: Ctrl-S save | Ctrl-Q quit | Ctrl-Z undo | Ctrl-Y redo | Ctrl-F find | Ctrl-R replace");
 }
 
 void Editor::run() {
@@ -71,7 +71,6 @@ void Editor::undo() {
 
     EditAction last = undoOne();
 
-    // Group rapid same-type char edits
     while (!undoStack_.empty()) {
         const EditAction& prev = undoStack_.back();
         if (prev.type != last.type) break;
@@ -133,6 +132,145 @@ void Editor::redo() {
 
     statsDirty_ = true;
     setStatusMessage("Redo");
+}
+
+void Editor::find() {
+    int savedCx = cx_, savedCy = cy_;
+    int savedRowOffset = rowOffset_, savedColOffset = colOffset_;
+    int searchDirection = 1;
+    int lastMatchRow = -1;
+
+    auto callback = [&](const std::string& query, int key) {
+        if (key == static_cast<int>(EditorKey::ARROW_DOWN) ||
+            key == static_cast<int>(EditorKey::ARROW_RIGHT)) {
+            searchDirection = 1;
+        } else if (key == static_cast<int>(EditorKey::ARROW_UP) ||
+                   key == static_cast<int>(EditorKey::ARROW_LEFT)) {
+            searchDirection = -1;
+        } else if (key == static_cast<int>(EditorKey::ESCAPE)) {
+            cx_ = savedCx;
+            cy_ = savedCy;
+            rowOffset_ = savedRowOffset;
+            colOffset_ = savedColOffset;
+            return;
+        } else {
+            searchDirection = 1;
+            lastMatchRow = -1;
+        }
+
+        if (query.empty()) return;
+
+        int startRow = (lastMatchRow == -1) ? cy_ : lastMatchRow + searchDirection;
+
+        for (int i = 0; i < buffer_.numRows(); i++) {
+            int row = (startRow + i * searchDirection + buffer_.numRows())
+                      % buffer_.numRows();
+            const std::string& chars = buffer_.getRow(row).chars;
+            auto pos = chars.find(query);
+            if (pos != std::string::npos) {
+                lastMatchRow = row;
+                cy_ = row;
+                cx_ = static_cast<int>(pos);
+                break;
+            }
+        }
+
+        // Count matches for display
+        int total = 0, current = 0;
+        for (int r = 0; r < buffer_.numRows(); r++) {
+            size_t searchPos = 0;
+            while ((searchPos = buffer_.getRow(r).chars.find(query, searchPos))
+                    != std::string::npos) {
+                total++;
+                if (r < cy_ || (r == cy_ && static_cast<int>(searchPos) <= cx_))
+                    current++;
+                searchPos += query.size();
+            }
+        }
+
+        if (total > 0)
+            setStatusMessage("Search: " + query + " [" + std::to_string(current)
+                            + "/" + std::to_string(total) + "]");
+        else
+            setStatusMessage("Search: " + query + " [no matches]");
+    };
+
+    std::string result = prompt("Search: ", callback);
+    if (result.empty())
+        setStatusMessage("");
+}
+
+void Editor::findAndReplace() {
+    std::string searchTerm = prompt("Search: ");
+    if (searchTerm.empty()) return;
+
+    std::string replacement = prompt("Replace with: ");
+    if (replacement.empty()) {
+        setStatusMessage("Replace cancelled");
+        return;
+    }
+
+    int replaced = 0;
+    int total = 0;
+
+    for (int r = 0; r < buffer_.numRows(); r++) {
+        size_t pos = 0;
+        while ((pos = buffer_.getRow(r).chars.find(searchTerm, pos))
+                != std::string::npos) {
+            total++;
+            pos += searchTerm.size();
+        }
+    }
+
+    if (total == 0) {
+        setStatusMessage("No matches found");
+        return;
+    }
+
+    bool done = false;
+    bool replaceAll = false;
+
+    for (int r = 0; r < buffer_.numRows() && !done; r++) {
+        size_t pos = 0;
+        while ((pos = buffer_.getRow(r).chars.find(searchTerm, pos))
+                != std::string::npos) {
+            cy_ = r;
+            cx_ = static_cast<int>(pos);
+
+            if (!replaceAll) {
+                setStatusMessage("Replace? y = yes, n = skip, a = all, Esc = stop ["
+                    + std::to_string(replaced) + "/" + std::to_string(total) + "]");
+                refreshScreen();
+                int key = terminal_.readKey();
+
+                if (key == 'n') {
+                    pos += searchTerm.size();
+                    continue;
+                } else if (key == 'a') {
+                    replaceAll = true;
+                } else if (key == static_cast<int>(EditorKey::ESCAPE)) {
+                    done = true;
+                    break;
+                } else if (key != 'y') {
+                    pos += searchTerm.size();
+                    continue;
+                }
+            }
+
+            for (int i = 0; i < static_cast<int>(searchTerm.size()); i++)
+                recordAction(buffer_.deleteChar(r, static_cast<int>(pos)));
+
+            for (int i = 0; i < static_cast<int>(replacement.size()); i++)
+                recordAction(buffer_.insertChar(r, static_cast<int>(pos) + i,
+                             replacement[i]));
+
+            replaced++;
+            pos += replacement.size();
+        }
+    }
+
+    setStatusMessage("Replaced " + std::to_string(replaced) + " of "
+                    + std::to_string(total) + " occurrences");
 }
 
 void Editor::scroll() {
@@ -263,26 +401,33 @@ void Editor::drawMessageBar(std::string& buf) {
     }
 }
 
-std::string Editor::prompt(const std::string& message) {
+std::string Editor::prompt(const std::string& message,
+                           PromptCallback callback) {
     std::string input;
 
-    while (true) {
-        setStatusMessage(message + input);
-        refreshScreen();
+    setStatusMessage(message);
+    refreshScreen();
 
+    while (true) {
         int key = terminal_.readKey();
 
         if (key == '\r' && !input.empty()) {
             setStatusMessage("");
+            if (callback) callback(input, key);
             return input;
         } else if (key == static_cast<int>(EditorKey::ESCAPE)) {
             setStatusMessage("");
+            if (callback) callback(input, key);
             return "";
         } else if (key == 127 || key == ctrlKey('h')) {
             if (!input.empty()) input.pop_back();
         } else if (key >= 32 && key <= 126) {
             input.push_back(static_cast<char>(key));
         }
+
+        setStatusMessage(message + input);
+        if (callback) callback(input, key);
+        refreshScreen();
     }
 }
 
@@ -325,6 +470,14 @@ void Editor::processKeypress(int key) {
 
         case ctrlKey('y'):
             redo();
+            break;
+
+        case ctrlKey('f'):
+            find();
+            break;
+
+        case ctrlKey('r'):
+            findAndReplace();
             break;
 
         case '\r':

@@ -3,10 +3,13 @@
 #include "filetype.hpp"
 #include "terminal.hpp"
 #include <ctime>
+#include <functional>
 #include <string>
 #include <vector>
 
 constexpr int ctrlKey(char c) { return c & 0x1f; }
+
+using PromptCallback = std::function<void(const std::string& input, int key)>;
 
 class Editor {
 public:
@@ -45,6 +48,9 @@ private:
     void recordAction(EditAction action);
     void undo();
     void redo();
+    void find();
+    void findAndReplace();
     void setStatusMessage(const std::string& msg);
-    std::string prompt(const std::string& message);
+    std::string prompt(const std::string& message,
+                       PromptCallback callback = nullptr);
 };

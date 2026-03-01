@@ -277,6 +277,52 @@ void test_undo_join() {
     assert(buf.getRow(1).chars == "cd");
 }
 
+// --- Replace offset tests ---
+
+void test_replace_shorter() {
+    Buffer buf;
+    const char* text = "hello hello";
+    for (int i = 0; text[i]; i++)
+        buf.insertChar(0, i, text[i]);
+
+    for (int i = 0; i < 5; i++) buf.deleteChar(0, 0);
+    buf.insertChar(0, 0, 'h');
+    buf.insertChar(0, 1, 'i');
+    assert(buf.getRow(0).chars == "hi hello");
+
+    auto pos = buf.getRow(0).chars.find("hello", 2);
+    assert(pos == 3);
+}
+
+void test_replace_longer() {
+    Buffer buf;
+    const char* text = "hi hi";
+    for (int i = 0; text[i]; i++)
+        buf.insertChar(0, i, text[i]);
+
+    for (int i = 0; i < 2; i++) buf.deleteChar(0, 0);
+    const char* rep = "hello";
+    for (int i = 0; rep[i]; i++)
+        buf.insertChar(0, i, rep[i]);
+    assert(buf.getRow(0).chars == "hello hi");
+
+    auto pos = buf.getRow(0).chars.find("hi", 5);
+    assert(pos == 6);
+}
+
+void test_replace_same_length() {
+    Buffer buf;
+    const char* text = "cat cat";
+    for (int i = 0; text[i]; i++)
+        buf.insertChar(0, i, text[i]);
+
+    for (int i = 0; i < 3; i++) buf.deleteChar(0, 0);
+    buf.insertChar(0, 0, 'd');
+    buf.insertChar(0, 1, 'o');
+    buf.insertChar(0, 2, 'g');
+    assert(buf.getRow(0).chars == "dog cat");
+}
+
 int main() {
     test_arrow_keys();
     test_home_end_variants();
@@ -301,6 +347,9 @@ int main() {
     test_undo_delete();
     test_undo_split();
     test_undo_join();
+    test_replace_shorter();
+    test_replace_longer();
+    test_replace_same_length();
 
     std::cout << "All tests passed.\n";
     return 0;
