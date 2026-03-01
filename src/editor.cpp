@@ -16,6 +16,12 @@ void Editor::run() {
     }
 }
 
+void Editor::recordAction(EditAction action) {
+    action.cursorRow = cy_;
+    action.cursorCol = cx_;
+    undoStack_.push_back(std::move(action));
+}
+
 void Editor::scroll() {
     rx_ = 0;
     if (cy_ < buffer_.numRows())
@@ -36,7 +42,6 @@ void Editor::refreshScreen() {
     if (terminal_.wasResized())
         screen_ = terminal_.getSize();
 
-    // Snap cx_ to row length
     int rowLen = (cy_ < buffer_.numRows())
         ? static_cast<int>(buffer_.getRow(cy_).chars.size()) : 0;
     if (cx_ > rowLen) cx_ = rowLen;
@@ -100,6 +105,40 @@ void Editor::processKeypress(int key) {
             running_ = false;
             break;
 
+        case '\r':
+            recordAction(buffer_.splitLine(cy_, cx_));
+            cy_++;
+            cx_ = 0;
+            break;
+
+        case 127:
+        case ctrlKey('h'):
+            if (cx_ > 0) {
+                recordAction(buffer_.deleteChar(cy_, cx_ - 1));
+                cx_--;
+            } else if (cy_ > 0) {
+                cx_ = static_cast<int>(buffer_.getRow(cy_ - 1).chars.size());
+                recordAction(buffer_.joinLines(cy_ - 1));
+                cy_--;
+            }
+            break;
+
+        case static_cast<int>(EditorKey::DEL):
+            if (cy_ < buffer_.numRows()) {
+                int rowLen = static_cast<int>(buffer_.getRow(cy_).chars.size());
+                if (cx_ < rowLen) {
+                    recordAction(buffer_.deleteChar(cy_, cx_));
+                } else if (cy_ < buffer_.numRows() - 1) {
+                    recordAction(buffer_.joinLines(cy_));
+                }
+            }
+            break;
+
+        case '\t':
+            recordAction(buffer_.insertChar(cy_, cx_, '\t'));
+            cx_++;
+            break;
+
         case static_cast<int>(EditorKey::ARROW_UP):
         case static_cast<int>(EditorKey::ARROW_DOWN):
         case static_cast<int>(EditorKey::ARROW_LEFT):
@@ -109,6 +148,13 @@ void Editor::processKeypress(int key) {
         case static_cast<int>(EditorKey::PAGE_UP):
         case static_cast<int>(EditorKey::PAGE_DOWN):
             moveCursor(key);
+            break;
+
+        default:
+            if (key >= 32 && key <= 126) {
+                recordAction(buffer_.insertChar(cy_, cx_, key));
+                cx_++;
+            }
             break;
     }
 }

@@ -16,6 +16,7 @@ void Buffer::open(const std::string& filename) {
         updateRender(row);
         rows_.push_back(std::move(row));
     }
+    dirty_ = false;
 }
 
 int Buffer::numRows() const { return static_cast<int>(rows_.size()); }
@@ -23,6 +24,57 @@ int Buffer::numRows() const { return static_cast<int>(rows_.size()); }
 const Row& Buffer::getRow(int index) const { return rows_[index]; }
 
 const std::string& Buffer::getFilename() const { return filename_; }
+
+bool Buffer::isDirty() const { return dirty_; }
+
+void Buffer::insertRow(int at, const std::string& text) {
+    if (at < 0 || at > numRows()) return;
+    Row row;
+    row.chars = text;
+    updateRender(row);
+    rows_.insert(rows_.begin() + at, std::move(row));
+}
+
+void Buffer::deleteRow(int at) {
+    if (at < 0 || at >= numRows()) return;
+    rows_.erase(rows_.begin() + at);
+}
+
+EditAction Buffer::insertChar(int row, int col, char c) {
+    if (row >= numRows()) insertRow(numRows(), "");
+    rows_[row].chars.insert(rows_[row].chars.begin() + col, c);
+    updateRender(rows_[row]);
+    dirty_ = true;
+    return {EditAction::INSERT_CHAR, row, col, c, "", 0, 0};
+}
+
+EditAction Buffer::deleteChar(int row, int col) {
+    char deleted = rows_[row].chars[col];
+    rows_[row].chars.erase(rows_[row].chars.begin() + col);
+    updateRender(rows_[row]);
+    dirty_ = true;
+    return {EditAction::DELETE_CHAR, row, col, deleted, "", 0, 0};
+}
+
+EditAction Buffer::splitLine(int row, int col) {
+    if (row >= numRows()) insertRow(numRows(), "");
+    std::string tail = rows_[row].chars.substr(col);
+    rows_[row].chars.resize(col);
+    updateRender(rows_[row]);
+    insertRow(row + 1, tail);
+    dirty_ = true;
+    return {EditAction::SPLIT_LINE, row, col, '\0', "", 0, 0};
+}
+
+EditAction Buffer::joinLines(int row) {
+    int joinCol = static_cast<int>(rows_[row].chars.size());
+    std::string savedText = rows_[row + 1].chars;
+    rows_[row].chars.append(savedText);
+    updateRender(rows_[row]);
+    deleteRow(row + 1);
+    dirty_ = true;
+    return {EditAction::JOIN_LINES, row, joinCol, '\0', savedText, 0, 0};
+}
 
 void Buffer::updateRender(Row& row) {
     row.render.clear();

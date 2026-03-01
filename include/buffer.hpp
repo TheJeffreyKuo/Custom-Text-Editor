@@ -9,6 +9,15 @@ struct Row {
     std::string render;
 };
 
+struct EditAction {
+    enum Type { INSERT_CHAR, DELETE_CHAR, SPLIT_LINE, JOIN_LINES };
+    Type type;
+    int row, col;
+    char ch;
+    std::string text;
+    int cursorRow, cursorCol;
+};
+
 int charsToRender(const Row& row, int cx);
 int renderToChars(const Row& row, int rx);
 
@@ -19,10 +28,19 @@ public:
     int numRows() const;
     const Row& getRow(int index) const;
     const std::string& getFilename() const;
+    bool isDirty() const;
+
+    EditAction insertChar(int row, int col, char c);
+    EditAction deleteChar(int row, int col);
+    EditAction splitLine(int row, int col);
+    EditAction joinLines(int row);
 
 private:
     std::vector<Row> rows_;
     std::string filename_;
+    bool dirty_ = false;
 
+    void insertRow(int at, const std::string& text);
+    void deleteRow(int at);
     void updateRender(Row& row);
 };

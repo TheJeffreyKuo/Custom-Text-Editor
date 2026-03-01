@@ -2,6 +2,7 @@
 #include "buffer.hpp"
 #include "terminal.hpp"
 #include <string>
+#include <vector>
 
 constexpr int ctrlKey(char c) { return c & 0x1f; }
 
@@ -22,9 +23,12 @@ private:
     int colOffset_ = 0;
     bool running_ = true;
 
+    std::vector<EditAction> undoStack_;
+
     void refreshScreen();
     void drawRows(std::string& buf);
     void processKeypress(int key);
     void moveCursor(int key);
     void scroll();
+    void recordAction(EditAction action);
 };
