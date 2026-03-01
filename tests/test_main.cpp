@@ -277,6 +277,105 @@ void test_undo_join() {
     assert(buf.getRow(1).chars == "cd");
 }
 
+// --- Syntax highlighting tests ---
+
+void test_highlight_numbers() {
+    Row row;
+    row.chars = "x = 42;";
+    row.render = row.chars;
+    row.hl.resize(row.render.size(), HL_NORMAL);
+
+    FileType ft = cppSyntax();
+    highlightRow(row, ft, false);
+
+    assert(row.hl[4] == HL_NUMBER);
+    assert(row.hl[5] == HL_NUMBER);
+    assert(row.hl[0] == HL_NORMAL);
+}
+
+void test_highlight_string() {
+    Row row;
+    row.chars = R"(char* s = "hello";)";
+    row.render = row.chars;
+    row.hl.resize(row.render.size(), HL_NORMAL);
+
+    FileType ft = cppSyntax();
+    highlightRow(row, ft, false);
+
+    int qStart = static_cast<int>(row.render.find('"'));
+    int qEnd = static_cast<int>(row.render.rfind('"'));
+    for (int i = qStart; i <= qEnd; i++)
+        assert(row.hl[i] == HL_STRING);
+}
+
+void test_highlight_comment() {
+    Row row;
+    row.chars = "int x; // comment";
+    row.render = row.chars;
+    row.hl.resize(row.render.size(), HL_NORMAL);
+
+    FileType ft = cppSyntax();
+    highlightRow(row, ft, false);
+
+    int commentStart = static_cast<int>(row.render.find("//"));
+    for (int i = commentStart; i < static_cast<int>(row.render.size()); i++)
+        assert(row.hl[i] == HL_COMMENT);
+
+    assert(row.hl[0] == HL_KEYWORD2);
+}
+
+void test_highlight_multiline_comment() {
+    Row row1, row2, row3;
+    row1.chars = "/* start";
+    row1.render = row1.chars;
+    row1.hl.resize(row1.render.size(), HL_NORMAL);
+
+    row2.chars = "middle";
+    row2.render = row2.chars;
+    row2.hl.resize(row2.render.size(), HL_NORMAL);
+
+    row3.chars = "end */";
+    row3.render = row3.chars;
+    row3.hl.resize(row3.render.size(), HL_NORMAL);
+
+    FileType ft = cppSyntax();
+    highlightRow(row1, ft, false);
+    assert(row1.openComment == true);
+
+    highlightRow(row2, ft, row1.openComment);
+    assert(row2.openComment == true);
+    for (auto h : row2.hl) assert(h == HL_MLCOMMENT);
+
+    highlightRow(row3, ft, row2.openComment);
+    assert(row3.openComment == false);
+}
+
+void test_highlight_invalidation() {
+    Row row1, row2;
+    row1.chars = "/* hello";
+    row1.render = row1.chars;
+    row1.hl.resize(row1.render.size(), HL_NORMAL);
+
+    row2.chars = "world";
+    row2.render = row2.chars;
+    row2.hl.resize(row2.render.size(), HL_NORMAL);
+
+    FileType ft = cppSyntax();
+    highlightRow(row1, ft, false);
+    highlightRow(row2, ft, row1.openComment);
+
+    for (auto h : row2.hl) assert(h == HL_MLCOMMENT);
+
+    row1.chars = "/* hello */";
+    row1.render = row1.chars;
+    row1.hl.resize(row1.render.size(), HL_NORMAL);
+    highlightRow(row1, ft, false);
+    assert(row1.openComment == false);
+
+    highlightRow(row2, ft, row1.openComment);
+    for (auto h : row2.hl) assert(h == HL_NORMAL);
+}
+
 // --- Replace offset tests ---
 
 void test_replace_shorter() {
@@ -347,6 +446,11 @@ int main() {
     test_undo_delete();
     test_undo_split();
     test_undo_join();
+    test_highlight_numbers();
+    test_highlight_string();
+    test_highlight_comment();
+    test_highlight_multiline_comment();
+    test_highlight_invalidation();
     test_replace_shorter();
     test_replace_longer();
     test_replace_same_length();

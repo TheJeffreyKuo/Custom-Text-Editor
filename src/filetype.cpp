@@ -1,32 +1,64 @@
 #include "filetype.hpp"
 
-FileType detectFileType(const std::string& filename) {
-    if (filename.empty()) return {"Plain Text"};
+FileType cppSyntax() {
+    return {
+        "C++",
+        {".cpp", ".cc", ".cxx", ".hpp", ".hxx"},
+        "//",
+        "/*", "*/",
+        {"if", "else", "while", "for", "do", "switch", "case", "default",
+         "break", "continue", "return", "struct", "class", "enum", "union",
+         "typedef", "static", "const", "extern", "inline", "volatile",
+         "sizeof", "namespace", "using", "template", "typename",
+         "public", "private", "protected", "virtual", "override",
+         "try", "catch", "throw", "new", "delete", "nullptr",
+         "#include", "#define", "#ifdef", "#ifndef", "#endif", "#pragma"},
+        {"int", "long", "short", "double", "float", "char", "void",
+         "unsigned", "signed", "bool", "auto", "size_t", "string",
+         "vector", "true", "false"},
+        true,
+        true
+    };
+}
 
-    // Match whole filenames first
+FileType detectFileType(const std::string& filename) {
+    static const std::vector<FileType> syntaxDefs = {
+        cppSyntax(),
+        {"C", {".c", ".h"}, "//", "/*", "*/", {}, {}, true, true},
+        {"Python", {".py"}, "#", "", "", {}, {}, false, false},
+        {"JavaScript", {".js"}, "//", "/*", "*/", {}, {}, false, false},
+        {"Rust", {".rs"}, "//", "/*", "*/", {}, {}, false, false},
+        {"Java", {".java"}, "//", "/*", "*/", {}, {}, false, false},
+        {"Shell", {".sh", ".bash"}, "#", "", "", {}, {}, false, false},
+        {"Markdown", {".md"}, "", "", "", {}, {}, false, false},
+        {"Text", {".txt"}, "", "", "", {}, {}, false, false},
+        {"Makefile", {"Makefile", "CMakeLists.txt"}, "#", "", "", {}, {}, false, false},
+    };
+
+    if (filename.empty()) return {"Plain Text", {}, "", "", "", {}, {}, false, false};
+
     auto lastSlash = filename.rfind('/');
     std::string base = (lastSlash != std::string::npos)
         ? filename.substr(lastSlash + 1) : filename;
 
-    if (base == "Makefile" || base == "CMakeLists.txt")
-        return {"Makefile"};
-
-    // Match by extension
     auto dot = filename.rfind('.');
-    if (dot == std::string::npos) return {"Plain Text"};
+    std::string ext = (dot != std::string::npos) ? filename.substr(dot) : "";
 
-    std::string ext = filename.substr(dot);
+    // Match whole filenames first (e.g., Makefile, CMakeLists.txt)
+    for (const auto& ft : syntaxDefs) {
+        for (const auto& pattern : ft.extensions) {
+            if (pattern == base)
+                return ft;
+        }
+    }
 
-    if (ext == ".c" || ext == ".h") return {"C"};
-    if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" ||
-        ext == ".hpp" || ext == ".hxx") return {"C++"};
-    if (ext == ".py") return {"Python"};
-    if (ext == ".js") return {"JavaScript"};
-    if (ext == ".rs") return {"Rust"};
-    if (ext == ".java") return {"Java"};
-    if (ext == ".sh" || ext == ".bash") return {"Shell"};
-    if (ext == ".md") return {"Markdown"};
-    if (ext == ".txt") return {"Text"};
+    // Then match by extension
+    for (const auto& ft : syntaxDefs) {
+        for (const auto& pattern : ft.extensions) {
+            if (!pattern.empty() && pattern[0] == '.' && pattern == ext)
+                return ft;
+        }
+    }
 
-    return {"Plain Text"};
+    return {"Plain Text", {}, "", "", "", {}, {}, false, false};
 }

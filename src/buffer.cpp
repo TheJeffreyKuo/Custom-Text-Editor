@@ -1,5 +1,7 @@
 #include "buffer.hpp"
+#include "filetype.hpp"
 #include <cctype>
+#include <cstring>
 #include <fstream>
 
 void Buffer::open(const std::string& filename) {
@@ -17,12 +19,22 @@ void Buffer::open(const std::string& filename) {
         updateRender(row);
         rows_.push_back(std::move(row));
     }
+
+    // Highlight all rows after loading
+    FileType ft = detectFileType(filename_);
+    for (int i = 0; i < numRows(); i++) {
+        bool prev = (i > 0) ? rows_[i - 1].openComment : false;
+        highlightRow(rows_[i], ft, prev);
+    }
+
     dirty_ = false;
 }
 
 int Buffer::numRows() const { return static_cast<int>(rows_.size()); }
 
 const Row& Buffer::getRow(int index) const { return rows_[index]; }
+
+Row& Buffer::getRowMut(int index) { return rows_[index]; }
 
 const std::string& Buffer::getFilename() const { return filename_; }
 
@@ -45,6 +57,7 @@ EditAction Buffer::insertChar(int row, int col, char c) {
     if (row >= numRows()) insertRow(numRows(), "");
     rows_[row].chars.insert(rows_[row].chars.begin() + col, c);
     updateRender(rows_[row]);
+    updateHighlight(row);
     dirty_ = true;
     return {EditAction::INSERT_CHAR, row, col, c, "", 0, 0};
 }
@@ -53,6 +66,7 @@ EditAction Buffer::deleteChar(int row, int col) {
     char deleted = rows_[row].chars[col];
     rows_[row].chars.erase(rows_[row].chars.begin() + col);
     updateRender(rows_[row]);
+    updateHighlight(row);
     dirty_ = true;
     return {EditAction::DELETE_CHAR, row, col, deleted, "", 0, 0};
 }
@@ -63,6 +77,7 @@ EditAction Buffer::splitLine(int row, int col) {
     rows_[row].chars.resize(col);
     updateRender(rows_[row]);
     insertRow(row + 1, tail);
+    updateHighlight(row);
     dirty_ = true;
     return {EditAction::SPLIT_LINE, row, col, '\0', "", 0, 0};
 }
@@ -73,8 +88,20 @@ EditAction Buffer::joinLines(int row) {
     rows_[row].chars.append(savedText);
     updateRender(rows_[row]);
     deleteRow(row + 1);
+    updateHighlight(row);
     dirty_ = true;
     return {EditAction::JOIN_LINES, row, joinCol, '\0', savedText, 0, 0};
+}
+
+void Buffer::updateHighlight(int fromRow) {
+    FileType ft = detectFileType(filename_);
+    for (int i = fromRow; i < numRows(); i++) {
+        bool prev = (i > 0) ? rows_[i - 1].openComment : false;
+        bool oldOpen = rows_[i].openComment;
+        highlightRow(rows_[i], ft, prev);
+        if (rows_[i].openComment == oldOpen && i > fromRow)
+            break;
+    }
 }
 
 int Buffer::save() {
@@ -110,6 +137,145 @@ void Buffer::updateRender(Row& row) {
         } else {
             row.render.push_back(c);
         }
+    }
+}
+
+bool isSeparator(char c) {
+    return std::isspace(static_cast<unsigned char>(c)) || c == '\0' ||
+           std::strchr(",.()+-/*=~%<>[];:{}&|^!?#", c) != nullptr;
+}
+
+void highlightRow(Row& row, const FileType& syntax, bool prevOpenComment) {
+    row.hl.assign(row.render.size(), HL_NORMAL);
+    row.openComment = prevOpenComment;
+
+    const std::string& r = row.render;
+    int len = static_cast<int>(r.size());
+    int i = 0;
+    bool prevSep = true;
+
+    while (i < len) {
+        char c = r[i];
+
+        // Multi-line comment continuation
+        if (row.openComment) {
+            row.hl[i] = HL_MLCOMMENT;
+            if (!syntax.mlCommentEnd.empty() &&
+                r.compare(i, syntax.mlCommentEnd.size(), syntax.mlCommentEnd) == 0) {
+                for (int j = 0; j < static_cast<int>(syntax.mlCommentEnd.size()); j++)
+                    row.hl[i + j] = HL_MLCOMMENT;
+                i += static_cast<int>(syntax.mlCommentEnd.size());
+                row.openComment = false;
+                prevSep = true;
+            } else {
+                i++;
+            }
+            continue;
+        }
+
+        // Single-line comment
+        if (!syntax.singleLineComment.empty() &&
+            r.compare(i, syntax.singleLineComment.size(), syntax.singleLineComment) == 0) {
+            for (int j = i; j < len; j++)
+                row.hl[j] = HL_COMMENT;
+            break;
+        }
+
+        // Multi-line comment start
+        if (!syntax.mlCommentStart.empty() &&
+            r.compare(i, syntax.mlCommentStart.size(), syntax.mlCommentStart) == 0) {
+            for (int j = 0; j < static_cast<int>(syntax.mlCommentStart.size()); j++)
+                row.hl[i + j] = HL_MLCOMMENT;
+            i += static_cast<int>(syntax.mlCommentStart.size());
+            row.openComment = true;
+            prevSep = false;
+            continue;
+        }
+
+        // Strings
+        if (syntax.highlightStrings && (c == '"' || c == '\'')) {
+            char quote = c;
+            row.hl[i] = HL_STRING;
+            i++;
+            while (i < len) {
+                row.hl[i] = HL_STRING;
+                if (r[i] == '\\' && i + 1 < len) {
+                    row.hl[i + 1] = HL_STRING;
+                    i += 2;
+                    continue;
+                }
+                if (r[i] == quote) { i++; break; }
+                i++;
+            }
+            prevSep = true;
+            continue;
+        }
+
+        // Numbers
+        if (syntax.highlightNumbers &&
+            ((std::isdigit(static_cast<unsigned char>(c)) && prevSep) ||
+             (c == '.' && i > 0 && row.hl[i - 1] == HL_NUMBER))) {
+            row.hl[i] = HL_NUMBER;
+            i++;
+            while (i < len && (std::isdigit(static_cast<unsigned char>(r[i])) ||
+                               r[i] == '.')) {
+                row.hl[i] = HL_NUMBER;
+                i++;
+            }
+            prevSep = false;
+            continue;
+        }
+
+        // Keywords
+        if (prevSep) {
+            bool matched = false;
+
+            // Check keywords1 first
+            for (const auto& kw : syntax.keywords1) {
+                int kwLen = static_cast<int>(kw.size());
+                if (r.compare(i, kwLen, kw) == 0 &&
+                    (i + kwLen >= len || isSeparator(r[i + kwLen]))) {
+                    for (int j = 0; j < kwLen; j++)
+                        row.hl[i + j] = HL_KEYWORD1;
+                    i += kwLen;
+                    prevSep = false;
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) continue;
+
+            // Check keywords2
+            for (const auto& kw : syntax.keywords2) {
+                int kwLen = static_cast<int>(kw.size());
+                if (r.compare(i, kwLen, kw) == 0 &&
+                    (i + kwLen >= len || isSeparator(r[i + kwLen]))) {
+                    for (int j = 0; j < kwLen; j++)
+                        row.hl[i + j] = HL_KEYWORD2;
+                    i += kwLen;
+                    prevSep = false;
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) continue;
+        }
+
+        prevSep = isSeparator(c);
+        i++;
+    }
+}
+
+int highlightToColor(uint8_t hl) {
+    switch (hl) {
+        case HL_NUMBER:    return 31;
+        case HL_STRING:    return 35;
+        case HL_COMMENT:   return 36;
+        case HL_MLCOMMENT: return 36;
+        case HL_KEYWORD1:  return 33;
+        case HL_KEYWORD2:  return 32;
+        case HL_MATCH:     return 34;
+        default:           return 37;
     }
 }
 

@@ -139,8 +139,14 @@ void Editor::find() {
     int savedRowOffset = rowOffset_, savedColOffset = colOffset_;
     int searchDirection = 1;
     int lastMatchRow = -1;
+    int lastHighlightRow = -1;
 
     auto callback = [&](const std::string& query, int key) {
+        // Restore previous match highlight
+        if (lastHighlightRow >= 0 && lastHighlightRow < buffer_.numRows())
+            buffer_.updateHighlight(lastHighlightRow);
+        lastHighlightRow = -1;
+
         if (key == static_cast<int>(EditorKey::ARROW_DOWN) ||
             key == static_cast<int>(EditorKey::ARROW_RIGHT)) {
             searchDirection = 1;
@@ -172,6 +178,17 @@ void Editor::find() {
                 cy_ = row;
                 cx_ = static_cast<int>(pos);
                 break;
+            }
+        }
+
+        // Set match highlight
+        if (lastMatchRow >= 0) {
+            lastHighlightRow = lastMatchRow;
+            Row& row = buffer_.getRowMut(cy_);
+            int renderCol = charsToRender(row, cx_);
+            for (int i = 0; i < static_cast<int>(query.size()); i++) {
+                if (renderCol + i < static_cast<int>(row.hl.size()))
+                    row.hl[renderCol + i] = HL_MATCH;
             }
         }
 
@@ -340,12 +357,28 @@ void Editor::drawRows(std::string& buf) {
                 buf.append("~");
             }
         } else {
-            const std::string& render = buffer_.getRow(fileRow).render;
+            const Row& row = buffer_.getRow(fileRow);
+            const std::string& render = row.render;
             int len = static_cast<int>(render.size()) - colOffset_;
             if (len < 0) len = 0;
             if (len > screen_.cols) len = screen_.cols;
-            if (len > 0)
+
+            if (len > 0 && !row.hl.empty()) {
+                int currentColor = -1;
+                for (int j = colOffset_; j < colOffset_ + len; j++) {
+                    int color = highlightToColor(row.hl[j]);
+                    if (color != currentColor) {
+                        char colorSeq[16];
+                        snprintf(colorSeq, sizeof(colorSeq), "\x1b[%dm", color);
+                        buf.append(colorSeq);
+                        currentColor = color;
+                    }
+                    buf.push_back(render[j]);
+                }
+                buf.append("\x1b[39m");
+            } else if (len > 0) {
                 buf.append(render, colOffset_, len);
+            }
         }
 
         buf.append("\x1b[K");

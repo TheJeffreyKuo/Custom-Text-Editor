@@ -1,13 +1,29 @@
 #pragma once
+#include <cstdint>
 #include <ctime>
 #include <string>
 #include <vector>
 
 constexpr int TAB_STOP = 8;
 
+enum Highlight : uint8_t {
+    HL_NORMAL = 0,
+    HL_NUMBER,
+    HL_STRING,
+    HL_COMMENT,
+    HL_MLCOMMENT,
+    HL_KEYWORD1,
+    HL_KEYWORD2,
+    HL_MATCH
+};
+
+struct FileType;
+
 struct Row {
     std::string chars;
     std::string render;
+    std::vector<uint8_t> hl;
+    bool openComment = false;
 };
 
 struct EditAction {
@@ -28,6 +44,9 @@ struct DocumentStats {
 
 int charsToRender(const Row& row, int cx);
 int renderToChars(const Row& row, int rx);
+void highlightRow(Row& row, const FileType& syntax, bool prevOpenComment);
+int highlightToColor(uint8_t hl);
+bool isSeparator(char c);
 
 class Buffer {
 public:
@@ -35,6 +54,7 @@ public:
 
     int numRows() const;
     const Row& getRow(int index) const;
+    Row& getRowMut(int index);
     const std::string& getFilename() const;
     bool isDirty() const;
 
@@ -42,6 +62,8 @@ public:
     EditAction deleteChar(int row, int col);
     EditAction splitLine(int row, int col);
     EditAction joinLines(int row);
+
+    void updateHighlight(int fromRow);
 
     int save();
     int save(const std::string& filename);
