@@ -218,6 +218,65 @@ void test_word_count_edge_cases() {
     assert(stats.totalWords == 2);
 }
 
+// --- Undo reversal tests ---
+
+void test_undo_insert() {
+    Buffer buf;
+    buf.insertChar(0, 0, 'a');
+    buf.insertChar(0, 1, 'b');
+    buf.insertChar(0, 2, 'c');
+
+    buf.deleteChar(0, 2);
+    assert(buf.getRow(0).chars == "ab");
+
+    buf.deleteChar(0, 1);
+    assert(buf.getRow(0).chars == "a");
+}
+
+void test_undo_delete() {
+    Buffer buf;
+    buf.insertChar(0, 0, 'a');
+    buf.insertChar(0, 1, 'b');
+    buf.insertChar(0, 2, 'c');
+
+    auto action = buf.deleteChar(0, 1);
+
+    buf.insertChar(action.row, action.col, action.ch);
+    assert(buf.getRow(0).chars == "abc");
+}
+
+void test_undo_split() {
+    Buffer buf;
+    buf.insertChar(0, 0, 'a');
+    buf.insertChar(0, 1, 'b');
+    buf.insertChar(0, 2, 'c');
+    buf.insertChar(0, 3, 'd');
+
+    auto action = buf.splitLine(0, 2);
+    assert(buf.numRows() == 2);
+
+    buf.joinLines(action.row);
+    assert(buf.numRows() == 1);
+    assert(buf.getRow(0).chars == "abcd");
+}
+
+void test_undo_join() {
+    Buffer buf;
+    buf.insertChar(0, 0, 'a');
+    buf.insertChar(0, 1, 'b');
+    buf.splitLine(0, 2);
+    buf.insertChar(1, 0, 'c');
+    buf.insertChar(1, 1, 'd');
+
+    auto action = buf.joinLines(0);
+    assert(buf.numRows() == 1);
+
+    buf.splitLine(action.row, action.col);
+    assert(buf.numRows() == 2);
+    assert(buf.getRow(0).chars == "ab");
+    assert(buf.getRow(1).chars == "cd");
+}
+
 int main() {
     test_arrow_keys();
     test_home_end_variants();
@@ -237,6 +296,11 @@ int main() {
     test_word_count_basic();
     test_word_count_multiple();
     test_word_count_edge_cases();
+
+    test_undo_insert();
+    test_undo_delete();
+    test_undo_split();
+    test_undo_join();
 
     std::cout << "All tests passed.\n";
     return 0;

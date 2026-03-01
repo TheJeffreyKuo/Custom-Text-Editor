@@ -7,7 +7,7 @@ Editor::Editor(const std::string& filename) : screen_(terminal_.getSize()) {
     screen_.rows -= 2;
     if (!filename.empty())
         buffer_.open(filename);
-    setStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit");
+    setStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-Z = undo | Ctrl-Y = redo");
 }
 
 void Editor::run() {
@@ -26,8 +26,113 @@ void Editor::setStatusMessage(const std::string& msg) {
 void Editor::recordAction(EditAction action) {
     action.cursorRow = cy_;
     action.cursorCol = cx_;
+    action.timestamp = std::time(nullptr);
     undoStack_.push_back(std::move(action));
+    redoStack_.clear();
     statsDirty_ = true;
+}
+
+void Editor::undo() {
+    if (undoStack_.empty()) {
+        setStatusMessage("Nothing to undo");
+        return;
+    }
+
+    auto undoOne = [&]() {
+        EditAction action = std::move(undoStack_.back());
+        undoStack_.pop_back();
+
+        EditAction redoAction;
+        switch (action.type) {
+            case EditAction::INSERT_CHAR:
+                redoAction = buffer_.deleteChar(action.row, action.col);
+                break;
+            case EditAction::DELETE_CHAR:
+                redoAction = buffer_.insertChar(action.row, action.col, action.ch);
+                break;
+            case EditAction::SPLIT_LINE:
+                redoAction = buffer_.joinLines(action.row);
+                break;
+            case EditAction::JOIN_LINES:
+                redoAction = buffer_.splitLine(action.row, action.col);
+                break;
+        }
+
+        redoAction.cursorRow = cy_;
+        redoAction.cursorCol = cx_;
+        redoAction.timestamp = action.timestamp;
+        redoStack_.push_back(std::move(redoAction));
+
+        cy_ = action.cursorRow;
+        cx_ = action.cursorCol;
+
+        return action;
+    };
+
+    EditAction last = undoOne();
+
+    // Group rapid same-type char edits
+    while (!undoStack_.empty()) {
+        const EditAction& prev = undoStack_.back();
+        if (prev.type != last.type) break;
+        if (prev.type == EditAction::SPLIT_LINE || prev.type == EditAction::JOIN_LINES) break;
+        if (last.timestamp - prev.timestamp > 1) break;
+        last = undoOne();
+    }
+
+    statsDirty_ = true;
+    setStatusMessage("Undo");
+}
+
+void Editor::redo() {
+    if (redoStack_.empty()) {
+        setStatusMessage("Nothing to redo");
+        return;
+    }
+
+    auto redoOne = [&]() {
+        EditAction action = std::move(redoStack_.back());
+        redoStack_.pop_back();
+
+        EditAction undoAction;
+        switch (action.type) {
+            case EditAction::INSERT_CHAR:
+                undoAction = buffer_.deleteChar(action.row, action.col);
+                break;
+            case EditAction::DELETE_CHAR:
+                undoAction = buffer_.insertChar(action.row, action.col, action.ch);
+                break;
+            case EditAction::SPLIT_LINE:
+                undoAction = buffer_.joinLines(action.row);
+                break;
+            case EditAction::JOIN_LINES:
+                undoAction = buffer_.splitLine(action.row, action.col);
+                break;
+        }
+
+        undoAction.cursorRow = cy_;
+        undoAction.cursorCol = cx_;
+        undoAction.timestamp = action.timestamp;
+        undoStack_.push_back(std::move(undoAction));
+
+        cy_ = action.cursorRow;
+        cx_ = action.cursorCol;
+
+        return action;
+    };
+
+    EditAction last = redoOne();
+
+    while (!redoStack_.empty()) {
+        const EditAction& next = redoStack_.back();
+        if (next.type != last.type) break;
+        if (next.type == EditAction::SPLIT_LINE || next.type == EditAction::JOIN_LINES) break;
+        if (next.timestamp - last.timestamp > 1) break;
+        last = redoOne();
+    }
+
+    statsDirty_ = true;
+    setStatusMessage("Redo");
 }
 
 void Editor::scroll() {
@@ -118,7 +223,6 @@ void Editor::drawStatusBar(std::string& buf) {
 
     buf.append("\x1b[7m");
 
-    // Left side: filename, dirty, filetype
     const std::string& fname = buffer_.getFilename();
     FileType ft = detectFileType(fname);
 
@@ -129,7 +233,6 @@ void Editor::drawStatusBar(std::string& buf) {
         ft.name.c_str());
     if (leftLen > screen_.cols) leftLen = screen_.cols;
 
-    // Right side: cursor position and stats
     char right[256];
     int rightLen = snprintf(right, sizeof(right),
         "Ln %d, Col %d | %d lines | %d chars | %d words ",
@@ -138,13 +241,11 @@ void Editor::drawStatusBar(std::string& buf) {
 
     buf.append(left, leftLen);
 
-    // Fill space between left and right with spaces (all in reverse video)
     int padding = screen_.cols - leftLen - rightLen;
     if (padding > 0) {
         buf.append(padding, ' ');
         buf.append(right, rightLen);
     } else {
-        // Not enough room for right side — just pad to fill
         int remaining = screen_.cols - leftLen;
         if (remaining > 0) buf.append(remaining, ' ');
     }
@@ -217,6 +318,14 @@ void Editor::processKeypress(int key) {
             statsDirty_ = true;
             break;
         }
+
+        case ctrlKey('z'):
+            undo();
+            break;
+
+        case ctrlKey('y'):
+            redo();
+            break;
 
         case '\r':
             recordAction(buffer_.splitLine(cy_, cx_));

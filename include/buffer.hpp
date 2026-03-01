@@ -1,4 +1,5 @@
 #pragma once
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@ struct EditAction {
     char ch;
     std::string text;
     int cursorRow, cursorCol;
+    time_t timestamp = 0;
 };
 
 struct DocumentStats {

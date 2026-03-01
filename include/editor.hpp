@@ -33,6 +33,7 @@ private:
     bool statsDirty_ = true;
 
     std::vector<EditAction> undoStack_;
+    std::vector<EditAction> redoStack_;
 
     void refreshScreen();
     void drawRows(std::string& buf);
@@ -42,6 +43,8 @@ private:
     void moveCursor(int key);
     void scroll();
     void recordAction(EditAction action);
+    void undo();
+    void redo();
     void setStatusMessage(const std::string& msg);
     std::string prompt(const std::string& message);
 };
