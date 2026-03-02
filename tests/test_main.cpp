@@ -1,5 +1,6 @@
 #include "terminal.hpp"
 #include "buffer.hpp"
+#include "diff.hpp"
 #include "filetype.hpp"
 #include <cassert>
 #include <iostream>
@@ -422,6 +423,91 @@ void test_replace_same_length() {
     assert(buf.getRow(0).chars == "dog cat");
 }
 
+// --- Diff algorithm tests ---
+
+void test_diff_identical() {
+    std::vector<std::string> a = {"hello", "world"};
+    std::vector<std::string> b = {"hello", "world"};
+    auto result = computeDiff(a, b);
+
+    assert(result.lines.size() == 2);
+    assert(result.lines[0].type == DiffLine::SAME);
+    assert(result.lines[1].type == DiffLine::SAME);
+    assert(result.addedCount == 0);
+    assert(result.removedCount == 0);
+    assert(result.hunkCount == 0);
+}
+
+void test_diff_completely_different() {
+    std::vector<std::string> a = {"aaa", "bbb"};
+    std::vector<std::string> b = {"ccc", "ddd"};
+    auto result = computeDiff(a, b);
+
+    assert(result.addedCount == 2);
+    assert(result.removedCount == 2);
+}
+
+void test_diff_addition() {
+    std::vector<std::string> a = {"hello", "world"};
+    std::vector<std::string> b = {"hello", "new", "world"};
+    auto result = computeDiff(a, b);
+
+    assert(result.addedCount == 1);
+    assert(result.removedCount == 0);
+
+    bool foundAdded = false;
+    for (const auto& line : result.lines) {
+        if (line.type == DiffLine::ADDED && line.text == "new")
+            foundAdded = true;
+    }
+    assert(foundAdded);
+}
+
+void test_diff_removal() {
+    std::vector<std::string> a = {"hello", "old", "world"};
+    std::vector<std::string> b = {"hello", "world"};
+    auto result = computeDiff(a, b);
+
+    assert(result.addedCount == 0);
+    assert(result.removedCount == 1);
+}
+
+void test_diff_empty_left() {
+    std::vector<std::string> a = {};
+    std::vector<std::string> b = {"hello", "world"};
+    auto result = computeDiff(a, b);
+
+    assert(result.addedCount == 2);
+    assert(result.removedCount == 0);
+}
+
+void test_diff_empty_right() {
+    std::vector<std::string> a = {"hello", "world"};
+    std::vector<std::string> b = {};
+    auto result = computeDiff(a, b);
+
+    assert(result.addedCount == 0);
+    assert(result.removedCount == 2);
+}
+
+void test_diff_both_empty() {
+    std::vector<std::string> a = {};
+    std::vector<std::string> b = {};
+    auto result = computeDiff(a, b);
+
+    assert(result.lines.empty());
+    assert(result.hunkCount == 0);
+}
+
+void test_diff_hunks() {
+    std::vector<std::string> a = {"a", "b", "c", "d", "e"};
+    std::vector<std::string> b = {"a", "X", "c", "Y", "e"};
+    auto result = computeDiff(a, b);
+
+    assert(result.hunkCount == 2);
+    assert(result.hunkStarts.size() == 2);
+}
+
 int main() {
     test_arrow_keys();
     test_home_end_variants();
@@ -454,6 +540,14 @@ int main() {
     test_replace_shorter();
     test_replace_longer();
     test_replace_same_length();
+    test_diff_identical();
+    test_diff_completely_different();
+    test_diff_addition();
+    test_diff_removal();
+    test_diff_empty_left();
+    test_diff_empty_right();
+    test_diff_both_empty();
+    test_diff_hunks();
 
     std::cout << "All tests passed.\n";
     return 0;

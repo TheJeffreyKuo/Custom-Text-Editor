@@ -11,6 +11,8 @@ add_library(kilo_lib STATIC
     src/editor.cpp
     src/buffer.cpp
     src/filetype.cpp
+    src/diff.cpp
+    src/diffviewer.cpp
 )
 
 target_include_directories(kilo_lib PUBLIC ${PROJECT_SOURCE_DIR}/include)
